@@ -38,7 +38,7 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 
 # Cấu hình Gemini API
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
-GEMINI_API_KEY = "AIzaSyAOJ9gfKhJjwrGa4UDxh8_y4iHY6ebKI88"  # Thay thế bằng API key của bạn
+GEMINI_API_KEY = "YOUR_API_KEY" # Thay bằng API của bạn tại đây để sử dụng API của Gemini AI 
 
 # Bộ nhớ ngắn hạn và trạng thái hoạt động của bot
 short_term_memory = {}
@@ -791,5 +791,5 @@ def update_memory(user_id, user_message, bot_response):
     conn.commit()
 
 # Chạy bot
-bot.run('MTMzNDQzMzAyNjA5NTk3NjYxMg.GuSbOl.OjZQpo4S9WAjkedl6obWoPAy9yjMDt8tQx1zfM')
+bot.run('TOKEN_BOT_DISCORD') # Token bot Discord của bạn ở đây 
 
