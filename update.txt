@@ -1,0 +1,17 @@
+31/1/2025 
+- Chỉnh lại API từ lệnh /fact, /quote, /randomimage✔️
+- Thêm log xử lý hiển thị thao tác✔️
+- Fix lỗi bất cập khi sử dụng các lệnh Main✔️
+- Điều chỉnh cấu hình phản hồi từ Gemini✔️
+- Xóa CSDL cũ và sử dụng sqlite3✔️
+- Tăng tính khách quan nội dung, thêm định dạng embed cho nội dung, làm màu✔️
+- Thêm lệnh /forward-notes cho server
+- Điều chỉnh Prompt nâng cao cho ngữ Cảnh
+- Tích hợp phát nhạc, phát video, hỗ trợ các tools cơ bản
+- Thêm mô hình tạo ảnh từ huggingface để tạo ảnh
+- Xử lý phân tích hình ảnh bằng /image 
+- Cải tiến thêm case cho API nếu gặp lỗi ở xử lý phản hồi bình thường
+- Điều chỉnh cơ chế thử lại nếu gặp lỗi tránh quá tải
+- Thay đổi cấu hình config kết hợp với API từ DeepSEEK
+- Thêm tính năng search , /search
+
