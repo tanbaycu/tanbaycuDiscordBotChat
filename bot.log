@@ -84,3 +84,11 @@
 2025-01-31 08:43:35,630 - __main__ - INFO - Dừng gửi sự thật hoặc câu chuyện cười ngẫu nhiên cho người dùng tanco3beat
 2025-01-31 08:43:46,417 - __main__ - INFO - Bot đã dừng hoạt động cho người dùng tanco3beat
 2025-01-31 08:45:15,678 - __main__ - ERROR - Lỗi khi lấy trích dẫn ngẫu nhiên: Cannot connect to host api.quotable.io:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1000)')]
+2025-01-31 08:56:56,851 - discord.client - INFO - logging in using static token
+2025-01-31 08:56:59,158 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 9be735071d997d9cc0c54ccb908e067b).
+2025-01-31 08:57:01,168 - __main__ - INFO - tanbaycu-botchat#7430 đã kết nối với Discord!
+2025-01-31 08:57:09,717 - __main__ - INFO - Nhận phản hồi từ Gemini API thành công
+2025-01-31 08:57:17,306 - __main__ - INFO - Nhận phản hồi từ Gemini API thành công
+2025-01-31 08:57:24,295 - __main__ - INFO - Nhận phản hồi từ Gemini API thành công
+2025-01-31 08:57:38,847 - __main__ - INFO - Nhận phản hồi từ Gemini API thành công
+2025-01-31 08:57:51,530 - __main__ - INFO - Nhận phản hồi từ Gemini API thành công
