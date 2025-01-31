@@ -5,8 +5,8 @@
 - Điều chỉnh cấu hình phản hồi từ Gemini✔️
 - Xóa CSDL cũ và sử dụng sqlite3✔️
 - Tăng tính khách quan nội dung, thêm định dạng embed cho nội dung, làm màu✔️
-- Thêm lệnh /forward-notes cho server
-- Điều chỉnh Prompt nâng cao cho ngữ Cảnh
+- Thêm lệnh /forward-notes cho server✔️ (backup in 51348)
+- Điều chỉnh Prompt nâng cao cho ngữ Cảnh✔️
 - Tích hợp phát nhạc, phát video, hỗ trợ các tools cơ bản
 - Thêm mô hình tạo ảnh từ huggingface để tạo ảnh
 - Xử lý phân tích hình ảnh bằng /image 
