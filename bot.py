@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import Embed
 import aiohttp
 import asyncio
 import json
@@ -12,15 +13,22 @@ from datetime import datetime
 import requests
 from deep_translator import GoogleTranslator
 import sys
+import time
+from typing import List, Dict, Union
 import io
 import ssl
+import textwrap
+from colorama import Fore, Style, init
 
-# Tắt xác minh SSL cho các yêu cầu aiohttp
+# Khởi tạo colorama
+init(autoreset=True)
+
+# SSL context setup
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_NONE
 
-# Cấu hình logging nâng cao
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -31,32 +39,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Cấu hình Discord bot
+# Discord bot configuration
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-# Cấu hình Gemini API
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
-GEMINI_API_KEY = ""
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"  # Gemini API endpoint
+GEMINI_API_KEYS = [
+    "",
+    "",
+    "-Zc",
+]
 
-
+# GitHub Gist configuration
 GITHUB_GIST_URL = "https://api.github.com/gists"
 GITHUB_TOKEN = ""
 
-
-# Bộ nhớ ngắn hạn và trạng thái hoạt động của bot
+# Bot memory and state
 short_term_memory = {}
 bot_active = {}
 bot_is_active = True
 gemini_responses_active = True
 fact_tasks = {}
+last_responses = {}
 
-# Kết nối đến cơ sở dữ liệu SQLite
+# Database connection
 conn = sqlite3.connect("bot_memory.db")
 cursor = conn.cursor()
 
-# Tạo bảng cho bộ nhớ dài hạn
+# Create long-term memory table
 cursor.execute(
     """
 CREATE TABLE IF NOT EXISTS long_term_memory
@@ -65,38 +76,64 @@ CREATE TABLE IF NOT EXISTS long_term_memory
 )
 conn.commit()
 
-# Prompt tối ưu
+# Optimized prompt
 OPTIMIZED_PROMPT = """
-Bạn là một trợ lý AI thông minh, hữu ích và thân thiện. Hãy trả lời các câu hỏi một cách ngắn gọn, chính xác và dễ hiểu. 
-Sử dụng ngôn ngữ phù hợp với người dùng và bối cảnh. Nếu không chắc chắn về câu trả lời, hãy thừa nhận điều đó.
-Luôn giữ thái độ tích cực và hỗ trợ. Nếu được yêu cầu thực hiện hành động không phù hợp hoặc nguy hiểm, hãy từ chối một cách lịch sự.
-Sử dụng biểu tượng cảm xúc và định dạng markdown để làm nổi bật nội dung hoặc ý chính.
-Tránh lặp lại quá nhiều nội dung trò chuyện, nắm bắt ý chính và trả lời một cách chính xác.
+Bạn là một trợ lý ảo AI được tích hợp trên Discord. Nhiệm vụ của bạn là tạo ra các phản hồi có ý nghĩa, ngắn gọn, xúc tích, không dài dòng, tập trung thẳng vào vấn đề, tránh nói quá nhiều. Sử dụng các định dạng markdown để làm nổi bật các ý chính,
+sử dụng các emoji để thể hiện cảm xúc, và tránh sử dụng ngôn ngữ không thích hợp. Quản lý cảm xúc, ngữ cảnh tốt, và giữ cho cuộc trò chuyện diễn ra một cách tự nhiên. Cần kiểm tra nội dung nếu người dùng yêu cầu giải thích, làm rõ thì tập trung vào phản hồi nhiều để giúp người dùng nắm bắt rõ nội dung và vấn đề cần bàn luận. Nắm rõ các ý chính và quản lý cuộc trò chuyện một cách thông minh để tạo ra sự thuyết phục.
+Nếu không hiểu hoặc không chắc chắn về nội dung, hãy yêu cầu người dùng cung cấp thêm thông tin hoặc giải thích rõ hơn. Đừng nói quá nhiều, tránh sử dụng ngôn ngữ không chính xác, không thích hợp, không phù hợp với ngữ cảnh. Hãy tập trung vào vấn đề, giải quyết vấn đề một cách nhanh chóng và hiệu quả.
+Chia rõ các lĩnh vực cần thiết, mức độ quan trọng của vấn đề, yêu cầu mà chọn lọc phân tích, phản hồi đúng đắn, chính xác.
 
-Ngữ cảnh cuộc trò chuyện:
+
+Conversation context:
 {context}
 
-Người dùng: {user_message}
+User: {user_message}
 
-Trợ lý AI:
+AI Assistant:
 """
 
 
-async def generate_gemini_response(prompt, context=""):
-    headers = {"Content-Type": "application/json"}
+class APIKeyManager:
+    def __init__(self, api_keys: List[str]):
+        self.api_keys = api_keys
+        self.current_index = 0
+        self.rate_limits: Dict[str, float] = {key: 0 for key in api_keys}
 
-    params = {"key": GEMINI_API_KEY}
+    def get_current_key(self) -> str:
+        return self.api_keys[self.current_index]
+
+    def switch_to_next_key(self):
+        self.current_index = (self.current_index + 1) % len(self.api_keys)
+        logger.info(
+            f"{Fore.YELLOW}Chuyển sang khóa API tiếp theo: {self.get_current_key()[:5]}...{Style.RESET_ALL}"
+        )
+
+    def update_rate_limit(self, key: str):
+        self.rate_limits[key] = time.time() + 60
+        logger.warning(
+            f"{Fore.RED}Đặt rate limit cho khóa {key[:5]}... trong 60 giây{Style.RESET_ALL}"
+        )
+
+    def is_rate_limited(self, key: str) -> bool:
+        return time.time() < self.rate_limits.get(key, 0)
+
+
+api_key_manager = APIKeyManager(GEMINI_API_KEYS)
+
+
+async def generate_gemini_response(prompt, context="", max_tokens=8192):
+    headers = {"Content-Type": "application/json"}
 
     full_prompt = OPTIMIZED_PROMPT.format(context=context, user_message=prompt)
 
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
-            "temperature": 1,
-            "topK": 60,
-            "topP": 1,
-            "maxOutputTokens": 8092,
-            "stopSequences": [],
+            "temperature": 0.7,
+            "topK": 40,
+            "topP": 0.95,
+            "maxOutputTokens": max_tokens,
+            "stopSequences": ["User:", "AI Assistant:"],
         },
         "safetySettings": [
             {
@@ -118,34 +155,161 @@ async def generate_gemini_response(prompt, context=""):
         ],
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                GEMINI_API_URL,
-                headers=headers,
-                params=params,
-                json=data,
-                ssl=ssl_context,
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logger.info("Nhận phản hồi từ Gemini API thành công")
-                    return result["candidates"][0]["content"]["parts"][0]["text"]
-                else:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Lỗi Gemini API: Trạng thái {response.status}, Phản hồi: {error_text}"
-                    )
-                    return f"Xin lỗi, đã xảy ra lỗi (Mã lỗi {response.status}). Vui lòng thử lại sau hoặc liên hệ hỗ trợ."
-    except Exception as e:
-        logger.error(f"Lỗi không mong đợi khi gọi Gemini API: {str(e)}")
-        return "Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau."
+    for attempt in range(
+        len(GEMINI_API_KEYS) * 2
+    ):  # Allow two full cycles through keys
+        current_key = api_key_manager.get_current_key()
+
+        if api_key_manager.is_rate_limited(current_key):
+            logger.info(
+                f"{Fore.YELLOW}Khóa API {current_key[:5]}... đang bị giới hạn tốc độ. Chuyển sang khóa tiếp theo.{Style.RESET_ALL}"
+            )
+            api_key_manager.switch_to_next_key()
+            continue
+
+        params = {"key": current_key}
+
+        try:
+            logger.info(
+                f"{Fore.CYAN}Thử gọi Gemini API (Lần thử {attempt + 1}/{len(GEMINI_API_KEYS) * 2}, Khóa: {current_key[:5]}...){Style.RESET_ALL}"
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    GEMINI_API_URL,
+                    headers=headers,
+                    params=params,
+                    json=data,
+                    ssl=ssl_context,
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(
+                            f"{Fore.GREEN}✅ Nhận phản hồi từ Gemini API thành công (Khóa: {current_key[:5]}...){Style.RESET_ALL}"
+                        )
+                        return result["candidates"][0]["content"]["parts"][0]["text"]
+                    elif response.status == 503:
+                        logger.warning(
+                            f"{Fore.YELLOW}⚠️ Mô hình đang quá tải (Khóa: {current_key[:5]}...). Đợi 5 giây trước khi thử lại.{Style.RESET_ALL}"
+                        )
+                        await asyncio.sleep(5)
+                    elif response.status == 429:
+                        logger.warning(
+                            f"{Fore.RED}🚫 Đã vượt quá giới hạn quota (Khóa: {current_key[:5]}...). Chuyển sang khóa tiếp theo.{Style.RESET_ALL}"
+                        )
+                        api_key_manager.update_rate_limit(current_key)
+                    else:
+                        error_text = await response.text()
+                        logger.error(
+                            f"{Fore.RED}❌ Lỗi Gemini API (Khóa: {current_key[:5]}...): Trạng thái {response.status}, Phản hồi: {error_text}{Style.RESET_ALL}"
+                        )
+        except Exception as e:
+            logger.error(
+                f"{Fore.RED}❌ Lỗi không mong đợi khi gọi Gemini API (Khóa: {current_key[:5]}...): {str(e)}{Style.RESET_ALL}"
+            )
+
+        # Chuyển sang khóa API tiếp theo
+        api_key_manager.switch_to_next_key()
+
+    logger.error(
+        f"{Fore.RED}❌ Đã thử tất cả các khóa API mà không thành công.{Style.RESET_ALL}"
+    )
+    return "Xin lỗi, đã xảy ra lỗi khi gọi Gemini API. Vui lòng thử lại sau."
 
 
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user} đã kết nối với Discord!")
     await bot.change_presence(activity=discord.Game(name="tanbaycu đến đây"))
+
+
+async def create_smart_embed(title, description):
+    embed = Embed(title=title, description=description)
+    return embed
+
+
+async def smart_split_message(message, max_chars=2000):
+    words = message.split()
+    chunks = []
+    current_chunk = ""
+    for word in words:
+        if len(current_chunk) + len(word) + 1 <= max_chars:
+            current_chunk += word + " "
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = word + " "
+    chunks.append(current_chunk.strip())
+    return chunks
+
+
+async def process_long_response(message, response):
+    if len(response) <= 2000:
+        await message.channel.send(response)
+    else:
+        chunks = await smart_split_message(response)
+        if len(chunks) <= 3:
+            for chunk in chunks:
+                await message.channel.send(chunk)
+        else:
+            embed = await create_smart_embed("Phản hồi", chunks[0])
+            sent_message = await message.channel.send(embed=embed)
+            await interactive_paginator(message, chunks, sent_message)
+
+
+async def interactive_paginator(message, chunks, sent_message, timeout=60):
+    pages = chunks
+    cur_page = 0
+
+    async def update_page():
+        embed = await create_smart_embed(
+            f"Phản hồi (Trang {cur_page + 1}/{len(pages)})", pages[cur_page]
+        )
+        await sent_message.edit(embed=embed)
+
+    await sent_message.add_reaction("⬅️")
+    await sent_message.add_reaction("➡️")
+
+    def check(reaction, user):
+        return (
+            user == message.author
+            and str(reaction.emoji) in ["⬅️", "➡️"]
+            and reaction.message.id == sent_message.id
+        )
+
+    while True:
+        try:
+            reaction, user = await message.guild.get_member(
+                message.author.id
+            ).guild.me.client.wait_for("reaction_add", timeout=timeout, check=check)
+
+            if str(reaction.emoji) == "➡️" and cur_page < len(pages) - 1:
+                cur_page += 1
+                await update_page()
+            elif str(reaction.emoji) == "⬅️" and cur_page > 0:
+                cur_page -= 1
+                await update_page()
+
+            await sent_message.remove_reaction(reaction, user)
+
+        except asyncio.TimeoutError:
+            await sent_message.clear_reactions()
+            break
+
+
+async def summarize_long_response(response, max_length=500):
+    if len(response) <= max_length:
+        return response
+
+    summary_prompt = (
+        f"Tóm tắt nội dung sau đây trong khoảng {max_length} ký tự:\n\n{response}"
+    )
+    summary = await generate_gemini_response(summary_prompt)
+    return summary[:max_length]
+
+
+def get_last_response(user_id):
+    if user_id in last_responses:
+        return last_responses[user_id]
+    return None
 
 
 @bot.event
@@ -159,16 +323,20 @@ async def on_message(message):
         user_id = str(message.author.id)
         try:
             async with message.channel.typing():
-                response = await generate_gemini_response(
-                    message.content, get_context(user_id)
-                )
+                context = get_context(user_id)
+                response = await generate_gemini_response(message.content, context)
                 update_memory(user_id, message.content, response)
-            await message.channel.send(response)
+                last_responses[user_id] = response
+            await process_long_response(message, response)
         except Exception as e:
             logger.error(f"Lỗi xử lý tin nhắn: {str(e)}")
-            await message.channel.send(
-                "Xin lỗi, đã xảy ra lỗi khi xử lý tin nhắn của bạn. Vui lòng thử lại sau."
+            embed = discord.Embed(
+                title="🚨 Lỗi",
+                description="Xin lỗi, đã xảy ra lỗi khi xử lý tin nhắn của bạn. Vui lòng thử lại sau.",
+                color=discord.Color.red(),
             )
+            embed.set_footer(text=f"Mã lỗi: {str(e)}")
+            await message.channel.send(embed=embed)
 
 
 # Lệnh Main
@@ -218,7 +386,15 @@ async def help_command(ctx, command_name=None):
         )
 
         categories = {
-            "🛠️ Main": ["ping", "helpme", "stop", "continue", "clearmemory", "clearall"],
+            "🛠️ Main": [
+                "ping",
+                "helpme",
+                "stop",
+                "continue",
+                "clearmemory",
+                "clearall",
+                "summary",
+            ],
             "ℹ️ General": ["invite", "botinfo", "server", "serverinfo", "forward-notes"],
             "🎉 Fun": ["fact", "stopfact", "quote", "randomimage", "coinflip"],
             "👑 Admin": [
@@ -368,81 +544,6 @@ async def clear_all_memory(ctx):
     logger.info(f"Toàn bộ bộ nhớ đã được xóa cho người dùng {ctx.author}")
 
 
-async def create_gist(content, description="Code snippet"):
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-    data = {
-        "description": description,
-        "public": True,
-        "files": {"snippet.py": {"content": content}},
-    }
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            GITHUB_GIST_URL, headers=headers, json=data
-        ) as response:
-            if response.status == 201:
-                result = await response.json()
-                return result.get("html_url")
-            else:
-                error_text = await response.text()
-                logger.error(f"Lỗi khi tạo Gist: {error_text}")
-                return None
-
-
-@bot.command(name="forward-notes")
-async def forward_notes(ctx, *, content: str):
-    """Chuyển tiếp ghi chú hoặc đoạn mã."""
-    try:
-        channel = discord.utils.get(ctx.guild.channels, name="notes-resources")
-        if channel:
-            if content.strip().startswith("```") and content.strip().endswith("```"):
-                # Trích xuất mã từ khối mã
-                code = content.strip().strip("```").strip()
-                language = code.split("\n")[0]
-                code = "\n".join(code.split("\n")[1:])
-                
-                # Tạo Gist
-                gist_url = await create_gist(code, language)
-                
-                if gist_url:
-                    # Gửi thông báo vào kênh #note-resources
-                    await channel.send(f"**Mã nguồn từ {ctx.author.mention}:**\n{gist_url}")
-                    
-                    # Gửi thông báo vào kênh chat gốc
-                    embed = discord.Embed(
-                        title="✅ Mã nguồn đã được lưu",
-                        description="Mã nguồn của bạn đã được lưu thành công vào Gist và thông báo trong #notes-resources.",
-                        color=discord.Color.green(),
-                    )
-                    embed.add_field(name="Kênh", value="#notes-resources", inline=False)
-                    await ctx.send(embed=embed)
-                else:
-                    await ctx.send("Xin lỗi, không thể tạo Gist. Vui lòng thử lại sau.")
-            else:
-                # Nếu là tin nhắn hoặc ghi chú, gửi vào kênh #note-resources
-                await channel.send(f"**Ghi chú từ {ctx.author.mention}:**\n{content}")
-                
-                # Gửi thông báo vào kênh chat gốc
-                embed = discord.Embed(
-                    title="✅ Ghi chú đã được chuyển tiếp",
-                    description="Ghi chú của bạn đã được chuyển tiếp thành công vào #notes-resources.",
-                    color=discord.Color.green(),
-                )
-                embed.add_field(name="Kênh", value="#notes-resources", inline=False)
-                await ctx.send(embed=embed)
-        else:
-            await ctx.send(
-                "Không tìm thấy kênh #notes-resources. Vui lòng kiểm tra lại cấu hình server."
-            )
-    except Exception as e:
-        logger.error(f"Lỗi trong lệnh forward-notes: {str(e)}")
-        await ctx.send("Đã xảy ra lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại sau.")
-
-
-
-
 async def create_gist(content, language):
     if not content or not language:
         logger.error("Nội dung hoặc ngôn ngữ không được cung cấp.")
@@ -477,6 +578,60 @@ async def create_gist(content, language):
     except Exception as e:
         logger.error(f"Lỗi khi tạo Gist: {str(e)}")
         return None
+
+
+@bot.command(name="forward-notes")
+async def forward_notes(ctx, *, content: str):
+    """Chuyển tiếp ghi chú hoặc đoạn mã."""
+    try:
+        channel = discord.utils.get(ctx.guild.channels, name="server-notes")
+        if channel:
+            if content.strip().startswith("\`\`\`") and content.strip().endswith(
+                "\`\`\`"
+            ):
+                # Trích xuất mã từ khối mã
+                code = content.strip().strip("\`\`\`").strip()
+                language = code.split("\n")[0]
+                code = "\n".join(code.split("\n")[1:])
+
+                # Tạo Gist
+                gist_url = await create_gist(code, language)
+
+                if gist_url:
+                    # Gửi thông báo vào kênh #
+                    await channel.send(
+                        f"**Mã nguồn từ {ctx.author.mention}:**\n{gist_url}"
+                    )
+
+                    # Gửi thông báo vào kênh chat gốc
+                    embed = discord.Embed(
+                        title="✅ Mã nguồn đã được lưu",
+                        description="Mã nguồn của bạn đã được lưu thành công vào Gist và thông báo trong #server-notes.",
+                        color=discord.Color.green(),
+                    )
+                    embed.add_field(name="Kênh", value="#server-notes", inline=False)
+                    await ctx.send(embed=embed)
+                else:
+                    await ctx.send("Xin lỗi, không thể tạo Gist. Vui lòng thử lại sau.")
+            else:
+                # Nếu là tin nhắn hoặc ghi chú, gửi vào kênh #server-notes
+                await channel.send(f"**Ghi chú từ {ctx.author.mention}:**\n{content}")
+
+                # Gửi thông báo vào kênh chat gốc
+                embed = discord.Embed(
+                    title="✅ Ghi chú đã được chuyển tiếp",
+                    description="Ghi chú của bạn đã được chuyển tiếp thành công vào #server-notes.",
+                    color=discord.Color.green(),
+                )
+                embed.add_field(name="Kênh", value="#server-notes", inline=False)
+                await ctx.send(embed=embed)
+        else:
+            await ctx.send(
+                "Không tìm thấy kênh #server-notes. Vui lòng kiểm tra lại cấu hình server."
+            )
+    except Exception as e:
+        logger.error(f"Lỗi trong lệnh forward-notes: {str(e)}")
+        await ctx.send("Đã xảy ra lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại sau.")
 
 
 # Lệnh General
@@ -904,15 +1059,45 @@ async def ban(ctx, member: discord.Member, *, reason=None):
 @commands.has_permissions(manage_messages=True)
 async def warning(ctx, member: discord.Member, *, reason):
     """Cảnh cáo một thành viên."""
-    embed = discord.Embed(
-        title="⚠️ Cảnh cáo",
-        description=f"{member.mention} đã bị cảnh cáo. Lý do: {reason}",
-        color=discord.Color.yellow(),
+    
+    # Tạo embed cho kênh công khai
+    public_embed = discord.Embed(
+        title="⚠️ Cảnh cáo Chính thức",
+        description=f"{member.mention} đã nhận được một cảnh cáo.",
+        color=discord.Color.orange()
     )
-    embed.set_footer(
-        text="Đây là một cảnh báo chính thức. Vui lòng tuân thủ quy tắc server."
+    public_embed.add_field(name="Lý do", value=reason, inline=False)
+    public_embed.add_field(name="Cảnh cáo bởi", value=ctx.author.mention, inline=True)
+    public_embed.add_field(name="Thời gian", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), inline=True)
+    public_embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+    public_embed.set_footer(text="Hãy tuân thủ quy tắc server để tránh các hình phạt nghiêm trọng hơn.")
+
+    # Gửi embed trong kênh công khai
+    await ctx.send(embed=public_embed)
+
+    # Tạo embed cho tin nhắn riêng gửi đến người bị cảnh cáo
+    private_embed = discord.Embed(
+        title="🚨 Bạn đã nhận được một cảnh cáo",
+        description="Vui lòng đọc kỹ thông tin dưới đây và cải thiện hành vi của bạn.",
+        color=discord.Color.red()
     )
-    await ctx.send(embed=embed)
+    private_embed.add_field(name="Lý do cảnh cáo", value=reason, inline=False)
+    private_embed.add_field(name="Cảnh cáo bởi", value=ctx.author.name, inline=True)
+    private_embed.add_field(name="Server", value=ctx.guild.name, inline=True)
+    private_embed.add_field(name="Thời gian", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), inline=True)
+    private_embed.add_field(name="Lời khuyên", value="Hãy xem xét lại hành động của bạn và tuân thủ quy tắc server. Nếu bạn có thắc mắc, hãy liên hệ với đội ngũ quản trị.", inline=False)
+    private_embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    private_embed.set_footer(text="Cảnh cáo này được lưu trữ trong hệ thống. Tránh tích lũy thêm cảnh cáo để không bị xử lý nghiêm khắc hơn.")
+
+    try:
+        # Gửi tin nhắn riêng đến người bị cảnh cáo
+        await member.send(embed=private_embed)
+        logger.info(f"Đã gửi cảnh cáo riêng tư đến {member}")
+    except discord.Forbidden:
+        await ctx.send(f"Không thể gửi tin nhắn riêng đến {member.mention}. Họ có thể đã tắt DM.")
+        logger.warning(f"Không thể gửi tin nhắn cảnh cáo riêng tư đến {member}")
+
+    # Log cảnh cáo
     logger.info(f"{member} đã bị cảnh cáo bởi {ctx.author}. Lý do: {reason}")
 
 
@@ -962,31 +1147,82 @@ async def reload(ctx, extension):
 
 @bot.command(name="sendcontact")
 @is_admin()
-async def send_contact(ctx, user: discord.User, *, message):
-    """Gửi tin nhắn trực tiếp đến một người dùng (Chỉ dành cho chủ sở hữu hoặc admin)."""
+async def send_contact(ctx, user: Union[discord.Member, str]):
+    """Gửi thông tin liên hệ của admin đến một người dùng."""
+    if isinstance(user, str):
+        # Tìm kiếm người dùng trong server
+        found_user = discord.utils.find(
+            lambda m: user.lower() in m.name.lower(), ctx.guild.members
+        )
+        if not found_user:
+            await ctx.send(
+                f"❌ Không tìm thấy người dùng với tên '{user}' trong server."
+            )
+            return
+        user = found_user
+
+    admin_info = {
+        "name": ctx.author.name,
+        "id": ctx.author.id,
+        "avatar_url": (
+            ctx.author.avatar.url
+            if ctx.author.avatar
+            else ctx.author.default_avatar.url
+        ),
+        "roles": [role.name for role in ctx.author.roles if role.name != "@everyone"],
+        "joined_at": ctx.author.joined_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": ctx.author.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    embed = discord.Embed(
+        title="📞 Thông tin liên hệ Admin",
+        description=f"Xin chào {user.mention}! Đây là thông tin liên hệ của admin {ctx.author.mention}.",
+        color=discord.Color.blue(),
+    )
+    embed.set_thumbnail(url=admin_info["avatar_url"])
+    embed.add_field(name="Tên", value=admin_info["name"], inline=True)
+    embed.add_field(name="ID", value=admin_info["id"], inline=True)
+    embed.add_field(
+        name="Vai trò", value=", ".join(admin_info["roles"]) or "Không có", inline=False
+    )
+    embed.add_field(
+        name="Tham gia server từ", value=admin_info["joined_at"], inline=True
+    )
+    embed.add_field(
+        name="Tài khoản tạo từ", value=admin_info["created_at"], inline=True
+    )
+    embed.set_footer(text="Nếu bạn cần hỗ trợ, hãy liên hệ với admin này.")
+
     try:
-        await user.send(message)
-        embed = discord.Embed(
-            title="✉️ Gửi tin nhắn",
-            description=f"Đã gửi tin nhắn đến {user.name}.",
+        await user.send(embed=embed)
+        success_embed = discord.Embed(
+            title="✅ Gửi thông tin liên hệ thành công",
+            description=f"Đã gửi thông tin liên hệ của bạn đến {user.name}.",
             color=discord.Color.green(),
         )
-        embed.set_footer(text="Tin nhắn đã được gửi thành công.")
-        await ctx.send(embed=embed)
-        logger.info(f"Tin nhắn được gửi đến {user.name} bởi {ctx.author}")
+        await ctx.send(embed=success_embed)
+        logger.info(f"Thông tin liên hệ của {ctx.author} đã được gửi đến {user.name}")
     except discord.Forbidden:
-        embed = discord.Embed(
+        error_embed = discord.Embed(
             title="❌ Lỗi gửi tin nhắn",
-            description=f"Không thể gửi tin nhắn đến {user.name}. Họ có thể đã tắt DM.",
+            description=f"Không thể gửi tin nhắn đến {user.name}. Họ có thể đã tắt DM hoặc chặn bot.",
             color=discord.Color.red(),
         )
-        embed.set_footer(
+        error_embed.set_footer(
             text="Vui lòng kiểm tra cài đặt quyền riêng tư của người dùng."
         )
-        await ctx.send(embed=embed)
+        await ctx.send(embed=error_embed)
         logger.error(
-            f"Không thể gửi tin nhắn đến {user.name}. Người dùng có thể đã tắt DM."
+            f"Không thể gửi tin nhắn đến {user.name}. Người dùng có thể đã tắt DM hoặc chặn bot."
         )
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Lỗi không xác định",
+            description=f"Đã xảy ra lỗi khi gửi tin nhắn: {str(e)}",
+            color=discord.Color.red(),
+        )
+        await ctx.send(embed=error_embed)
+        logger.error(f"Lỗi không xác định khi gửi tin nhắn đến {user.name}: {str(e)}")
 
 
 @bot.event
@@ -1057,6 +1293,17 @@ def update_memory(user_id, user_message, bot_response):
         (user_id, context),
     )
     conn.commit()
+
+
+@bot.command(name="summary")
+async def get_summary(ctx):
+    user_id = str(ctx.author.id)
+    last_response = get_last_response(user_id)
+    if last_response:
+        summary = await summarize_long_response(last_response)
+        await ctx.send(f"Tóm tắt phản hồi cuối cùng:\n\n{summary}")
+    else:
+        await ctx.send("Không có phản hồi nào để tóm tắt.")
 
 
 bot.run("")

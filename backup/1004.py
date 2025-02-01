@@ -40,12 +40,17 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
 GEMINI_API_KEY = ""
 
+
+GITHUB_GIST_URL = "https://api.github.com/gists"
+GITHUB_TOKEN = ""
+
+
 # Bộ nhớ ngắn hạn và trạng thái hoạt động của bot
-short_term_memory = {} # Bộ nhớ ngắn hạn cho mỗi người dùng
-bot_active = {} # Trạng thái hoạt động của bot cho mỗi người dùng
-bot_is_active = True # Mặc định bot đang hoạt động
-gemini_responses_active = True # Mặc định phản hồi tin nhắn thông thường được kích hoạt
-fact_tasks = {} # Các nhiệm vụ gửi sự thật hoặc câu chuyện cười ngẫu nhiên
+short_term_memory = {}
+bot_active = {}
+bot_is_active = True
+gemini_responses_active = True
+fact_tasks = {}
 
 # Kết nối đến cơ sở dữ liệu SQLite
 conn = sqlite3.connect("bot_memory.db")
@@ -58,7 +63,7 @@ CREATE TABLE IF NOT EXISTS long_term_memory
 (user_id TEXT, context TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)
 """
 )
-conn.commit() # Lưu thay đổi
+conn.commit()
 
 # Prompt tối ưu
 OPTIMIZED_PROMPT = """
@@ -74,7 +79,7 @@ Ngữ cảnh cuộc trò chuyện:
 Người dùng: {user_message}
 
 Trợ lý AI:
-""" # Prompt tối ưu cho Gemini API
+"""
 
 
 async def generate_gemini_response(prompt, context=""):
@@ -140,9 +145,7 @@ async def generate_gemini_response(prompt, context=""):
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user} đã kết nối với Discord!")
-    await bot.change_presence(
-        activity=discord.Game(name="tanbaycu đến đây")
-    ) # Đặt trạng thái hoạt động của bot
+    await bot.change_presence(activity=discord.Game(name="tanbaycu đến đây"))
 
 
 @bot.event
@@ -165,7 +168,7 @@ async def on_message(message):
             logger.error(f"Lỗi xử lý tin nhắn: {str(e)}")
             await message.channel.send(
                 "Xin lỗi, đã xảy ra lỗi khi xử lý tin nhắn của bạn. Vui lòng thử lại sau."
-            ) # Thông báo lỗi cho người dùng
+            )
 
 
 # Lệnh Main
@@ -216,7 +219,7 @@ async def help_command(ctx, command_name=None):
 
         categories = {
             "🛠️ Main": ["ping", "helpme", "stop", "continue", "clearmemory", "clearall"],
-            "ℹ️ General": ["invite", "botinfo", "server", "serverinfo"],
+            "ℹ️ General": ["invite", "botinfo", "server", "serverinfo", "forward-notes"],
             "🎉 Fun": ["fact", "stopfact", "quote", "randomimage", "coinflip"],
             "👑 Admin": [
                 "shutdown",
@@ -363,6 +366,117 @@ async def clear_all_memory(ctx):
     embed.set_footer(text="Bot sẽ quên mọi cuộc trò chuyện trước đây với bạn.")
     await ctx.send(embed=embed)
     logger.info(f"Toàn bộ bộ nhớ đã được xóa cho người dùng {ctx.author}")
+
+
+async def create_gist(content, description="Code snippet"):
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    data = {
+        "description": description,
+        "public": True,
+        "files": {"snippet.py": {"content": content}},
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            GITHUB_GIST_URL, headers=headers, json=data
+        ) as response:
+            if response.status == 201:
+                result = await response.json()
+                return result.get("html_url")
+            else:
+                error_text = await response.text()
+                logger.error(f"Lỗi khi tạo Gist: {error_text}")
+                return None
+
+
+@bot.command(name="forward-notes")
+async def forward_notes(ctx, *, content: str):
+    """Chuyển tiếp ghi chú hoặc đoạn mã."""
+    try:
+        channel = discord.utils.get(ctx.guild.channels, name="notes-resources")
+        if channel:
+            if content.strip().startswith("```") and content.strip().endswith("```"):
+                # Trích xuất mã từ khối mã
+                code = content.strip().strip("```").strip()
+                language = code.split("\n")[0]
+                code = "\n".join(code.split("\n")[1:])
+                
+                # Tạo Gist
+                gist_url = await create_gist(code, language)
+                
+                if gist_url:
+                    # Gửi thông báo vào kênh #note-resources
+                    await channel.send(f"**Mã nguồn từ {ctx.author.mention}:**\n{gist_url}")
+                    
+                    # Gửi thông báo vào kênh chat gốc
+                    embed = discord.Embed(
+                        title="✅ Mã nguồn đã được lưu",
+                        description="Mã nguồn của bạn đã được lưu thành công vào Gist và thông báo trong #notes-resources.",
+                        color=discord.Color.green(),
+                    )
+                    embed.add_field(name="Kênh", value="#notes-resources", inline=False)
+                    await ctx.send(embed=embed)
+                else:
+                    await ctx.send("Xin lỗi, không thể tạo Gist. Vui lòng thử lại sau.")
+            else:
+                # Nếu là tin nhắn hoặc ghi chú, gửi vào kênh #note-resources
+                await channel.send(f"**Ghi chú từ {ctx.author.mention}:**\n{content}")
+                
+                # Gửi thông báo vào kênh chat gốc
+                embed = discord.Embed(
+                    title="✅ Ghi chú đã được chuyển tiếp",
+                    description="Ghi chú của bạn đã được chuyển tiếp thành công vào #notes-resources.",
+                    color=discord.Color.green(),
+                )
+                embed.add_field(name="Kênh", value="#notes-resources", inline=False)
+                await ctx.send(embed=embed)
+        else:
+            await ctx.send(
+                "Không tìm thấy kênh #notes-resources. Vui lòng kiểm tra lại cấu hình server."
+            )
+    except Exception as e:
+        logger.error(f"Lỗi trong lệnh forward-notes: {str(e)}")
+        await ctx.send("Đã xảy ra lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại sau.")
+
+
+
+
+async def create_gist(content, language):
+    if not content or not language:
+        logger.error("Nội dung hoặc ngôn ngữ không được cung cấp.")
+        return None
+
+    description = f"Code snippet created by Discord bot"
+    filename = f"snippet.{language}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    data = {
+        "description": description,
+        "public": True,
+        "files": {filename: {"content": content}},
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                GITHUB_GIST_URL, headers=headers, json=data
+            ) as response:
+                if response.status == 201:
+                    result = await response.json()
+                    return result.get("html_url")
+                else:
+                    error_response = await response.json()
+                    logger.error(
+                        f"Lỗi khi tạo Gist: {response.status}, Chi tiết: {error_response}"
+                    )
+                    return None
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo Gist: {str(e)}")
+        return None
 
 
 # Lệnh General

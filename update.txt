@@ -15,3 +15,10 @@
 - Thay đổi cấu hình config kết hợp với API từ DeepSEEK
 - Thêm tính năng search , /search
 
+1/2/2025
+- Nâng cấp thêm 3 khóa Gemini, tạo vòng lặp thử lại✔️
+- Điều chỉnh format long message lên gửi theo page_num✔️
+- Điều chỉnh các lệnh của Admin✔️
+- Đổi Prompt✔️
+- Nâng cấp xử lý lỗi trong thao tác và phản hồi với tin nhắn ✔️(backup1004)
+- Thêm lệnh nhắc nhở
