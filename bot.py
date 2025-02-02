@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import Embed
 import aiohttp
 import asyncio
@@ -9,19 +9,20 @@ import sqlite3
 from collections import deque
 import random
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import requests
 from deep_translator import GoogleTranslator
 import sys
 import time
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Tuple
 import io
 import ssl
-import textwrap
+import platform
 from colorama import Fore, Style, init
 
 # Khởi tạo colorama
 init(autoreset=True)
+
 
 # SSL context setup
 ssl_context = ssl.create_default_context()
@@ -48,7 +49,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 GEMINI_API_KEYS = [
     "",
     "",
-    "-Zc",
+    "",
 ]
 
 # GitHub Gist configuration
@@ -130,7 +131,7 @@ async def generate_gemini_response(prompt, context="", max_tokens=8192):
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
             "temperature": 0.7,
-            "topK": 40,
+            "topK": 55,
             "topP": 0.95,
             "maxOutputTokens": max_tokens,
             "stopSequences": ["User:", "AI Assistant:"],
@@ -395,7 +396,7 @@ async def help_command(ctx, command_name=None):
                 "clearall",
                 "summary",
             ],
-            "ℹ️ General": ["invite", "botinfo", "server", "serverinfo", "forward-notes"],
+            "ℹ️ General": ["invite", "botinfo", "server", "serverinfo", "ghichu"],
             "🎉 Fun": ["fact", "stopfact", "quote", "randomimage", "coinflip"],
             "👑 Admin": [
                 "shutdown",
@@ -580,17 +581,24 @@ async def create_gist(content, language):
         return None
 
 
-@bot.command(name="forward-notes")
-async def forward_notes(ctx, *, content: str):
-    """Chuyển tiếp ghi chú hoặc đoạn mã."""
+@bot.command(name="ghichu")
+async def ghichu(ctx, *, content: str):
+    """Chuyển tiếp ghi chú hoặc đoạn mã với hiệu ứng màu sắc và chi tiết thú vị."""
     try:
         channel = discord.utils.get(ctx.guild.channels, name="server-notes")
         if channel:
-            if content.strip().startswith("\`\`\`") and content.strip().endswith(
-                "\`\`\`"
-            ):
-                # Trích xuất mã từ khối mã
-                code = content.strip().strip("\`\`\`").strip()
+            # Tạo một màu ngẫu nhiên cho embed
+            random_color = discord.Color(random.randint(0, 0xFFFFFF))
+
+            # Danh sách các emoji ngẫu nhiên cho tiêu đề
+            title_emojis = ["🚀", "💡", "✨", "🌟", "🎉", "🔥", "🌈", "🦄", "🍕", "🎨"]
+
+            # Lấy thời gian hiện tại
+            current_time = datetime.now().strftime("%H:%M:%S - %d/%m/%Y")
+
+            if content.strip().startswith(r"```") and content.strip().endswith(r"```"):
+                # Xử lý mã nguồn
+                code = content.strip().strip(r"```").strip()
                 language = code.split("\n")[0]
                 code = "\n".join(code.split("\n")[1:])
 
@@ -598,40 +606,139 @@ async def forward_notes(ctx, *, content: str):
                 gist_url = await create_gist(code, language)
 
                 if gist_url:
-                    # Gửi thông báo vào kênh #
-                    await channel.send(
-                        f"**Mã nguồn từ {ctx.author.mention}:**\n{gist_url}"
+                    # Tạo một danh sách các mô tả ngẫu nhiên cho mã nguồn
+                    code_descriptions = [
+                        "Một kiệt tác code vừa ra lò! 🍳",
+                        "Có ai ngửi thấy mùi code thơm không? 👃",
+                        "Mã nguồn mới! Nóng hổi và sẵn sàng để debug! 🔍",
+                        "Wow! Đây là loại code gì vậy? Quá đỉnh! 🏔️",
+                        "Code này xịn như một ly cà phê buổi sáng! ☕",
+                    ]
+
+                    # Gửi thông báo vào kênh #server-notes
+                    embed = discord.Embed(
+                        title=f"{random.choice(title_emojis)} Mã nguồn mới toanh!",
+                        description=f"{random.choice(code_descriptions)}\n\nTác giả: {ctx.author.mention}",
+                        color=random_color,
                     )
+                    embed.add_field(name="🔗 Gist URL", value=gist_url, inline=False)
+                    embed.add_field(name="🌈 Ngôn ngữ", value=language, inline=True)
+                    embed.add_field(
+                        name="📊 Độ dài", value=f"{len(code.split())} từ", inline=True
+                    )
+                    embed.set_footer(
+                        text=f"⏰ {current_time} | Hãy chia sẻ nếu bạn thấy nó hữu ích!"
+                    )
+                    await channel.send(embed=embed)
 
                     # Gửi thông báo vào kênh chat gốc
-                    embed = discord.Embed(
-                        title="✅ Mã nguồn đã được lưu",
-                        description="Mã nguồn của bạn đã được lưu thành công vào Gist và thông báo trong #server-notes.",
+                    success_messages = [
+                        "Tuyệt vời! Mã của bạn đã được lưu và chia sẻ.",
+                        "Bùm! Mã nguồn của bạn đã được teleport đến #server-notes.",
+                        "Mã của bạn vừa được gửi đi với tốc độ ánh sáng!",
+                        "Chúc mừng! Bạn vừa đóng góp một viên gạch vào tòa lâu đài code!",
+                        "Ồ la la! Mã nguồn của bạn trông thật lộng lẫy trong #server-notes!",
+                    ]
+                    success_embed = discord.Embed(
+                        title="✅ Nhiệm vụ hoàn thành!",
+                        description=random.choice(success_messages),
                         color=discord.Color.green(),
                     )
-                    embed.add_field(name="Kênh", value="#server-notes", inline=False)
-                    await ctx.send(embed=embed)
+                    success_embed.add_field(
+                        name="📍 Kênh", value="#server-notes", inline=True
+                    )
+                    success_embed.add_field(
+                        name="🔗 Gist URL", value=gist_url, inline=True
+                    )
+                    success_embed.set_footer(
+                        text=f"⏰ {current_time} | Cảm ơn bạn đã đóng góp!"
+                    )
+                    await ctx.send(embed=success_embed)
                 else:
-                    await ctx.send("Xin lỗi, không thể tạo Gist. Vui lòng thử lại sau.")
+                    await ctx.send(
+                        "Oops! Có vẻ như Gist đang bị kẹt trong không gian-thời gian. Hãy thử lại sau nhé! 🕳️🕰️"
+                    )
             else:
-                # Nếu là tin nhắn hoặc ghi chú, gửi vào kênh #server-notes
-                await channel.send(f"**Ghi chú từ {ctx.author.mention}:**\n{content}")
+                # Xử lý ghi chú
+                note_titles = [
+                    "📝 Ghi chú mới toanh!",
+                    "💭 Một suy nghĩ bay vèo qua!",
+                    "🧠 Ý tưởng mới vừa nở!",
+                    "📚 Kiến thức mới được unlock!",
+                    "🌱 Một hạt giống tri thức vừa được gieo!",
+                ]
+                note_embed = discord.Embed(
+                    title=random.choice(note_titles),
+                    description=f"Một suy nghĩ tuyệt vời từ {ctx.author.mention} vừa được ghi lại!",
+                    color=random_color,
+                )
+                note_embed.add_field(name="💡 Nội dung", value=content, inline=False)
+                note_embed.add_field(
+                    name="🔤 Độ dài", value=f"{len(content.split())} từ", inline=True
+                )
+                note_embed.add_field(
+                    name="🎭 Tâm trạng",
+                    value=random.choice(
+                        ["Hào hứng", "Tò mò", "Sáng tạo", "Nghiêm túc", "Vui vẻ"]
+                    ),
+                    inline=True,
+                )
+                note_embed.set_footer(
+                    text=f"⏰ {current_time} | Mỗi ghi chú là một kho báu tri thức!"
+                )
+                await channel.send(embed=note_embed)
 
                 # Gửi thông báo vào kênh chat gốc
-                embed = discord.Embed(
-                    title="✅ Ghi chú đã được chuyển tiếp",
-                    description="Ghi chú của bạn đã được chuyển tiếp thành công vào #server-notes.",
+                confirm_messages = [
+                    "Ý tưởng của bạn đã được chia sẻ thành công!",
+                    "Ghi chú của bạn vừa cất cánh đến #server-notes!",
+                    "Bạn vừa gieo một hạt giống tri thức trong cộng đồng!",
+                    "Ting! Ghi chú của bạn đã được ping đến #server-notes.",
+                    "Wow! Ghi chú của bạn vừa tạo ra một gợn sóng trong đại dương kiến thức!",
+                ]
+                confirm_embed = discord.Embed(
+                    title="🎉 Ghi chú đã được chuyển tiếp!",
+                    description=random.choice(confirm_messages),
                     color=discord.Color.green(),
                 )
-                embed.add_field(name="Kênh", value="#server-notes", inline=False)
-                await ctx.send(embed=embed)
+                confirm_embed.add_field(
+                    name="📍 Kênh", value="#server-notes", inline=True
+                )
+                confirm_embed.set_footer(
+                    text=f"⏰ {current_time} | Hãy tiếp tục chia sẻ những ý tưởng tuyệt vời của bạn!"
+                )
+                await ctx.send(embed=confirm_embed)
         else:
             await ctx.send(
-                "Không tìm thấy kênh #server-notes. Vui lòng kiểm tra lại cấu hình server."
+                "Ôi không! Có vẻ như kênh #server-notes đã bị hút vào một lỗ đen. Hãy gọi NASA gấp! 🚀🕳️"
             )
     except Exception as e:
-        logger.error(f"Lỗi trong lệnh forward-notes: {str(e)}")
-        await ctx.send("Đã xảy ra lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại sau.")
+        error_messages = [
+            "Oops! Có vẻ như con bot của chúng ta đang gặp chút rắc rối.",
+            "Ôi không! Bot vừa bị vấp ngã trong thế giới số.",
+            "Có vẻ như có một con bug đang chọc phá hệ thống!",
+            "Xin lỗi! Bot vừa bị short-circuit một chút.",
+            "Rất tiếc! Có vẻ như ma thuật của chúng ta hơi trục trặc.",
+        ]
+        error_embed = discord.Embed(
+            title="❌ Houston, chúng ta có vấn đề!",
+            description=random.choice(error_messages),
+            color=discord.Color.red(),
+        )
+        error_embed.add_field(name="🔍 Chi tiết lỗi", value=str(e), inline=False)
+        error_embed.add_field(
+            name="🛠️ Giải pháp",
+            value="Hãy thử lại sau hoặc gọi đội cứu hộ bot!",
+            inline=False,
+        )
+        error_embed.set_footer(
+            text=f"⏰ {current_time} | Đừng lo, chúng tôi sẽ sớm khắc phục!"
+        )
+        await ctx.send(embed=error_embed)
+        logger.error(f"Lỗi trong lệnh ghichu: {str(e)}")
+
+
+VN_TIMEZONE = timezone(timedelta(hours=7))
 
 
 # Lệnh General
@@ -670,69 +777,315 @@ async def invite_link(ctx):
 
 @bot.command(name="botinfo")
 async def bot_info(ctx):
-    """Hiển thị thông tin về bot."""
-    embed = discord.Embed(title="🤖 Thông tin Bot", color=discord.Color.blue())
-    embed.add_field(name="Tên", value=bot.user.name, inline=True)
-    embed.add_field(name="ID", value=bot.user.id, inline=True)
-    embed.add_field(name="Phiên bản Discord.py", value=discord.__version__, inline=True)
-    embed.add_field(name="Độ trễ", value=f"{round(bot.latency * 1000)}ms", inline=True)
-    embed.add_field(name="Số lượng server", value=len(bot.guilds), inline=True)
+    # Tạo embed với màu ngẫu nhiên
+    embed = discord.Embed(
+        title="🤖 Thông tin Super Bot",
+        description="Xin chào! Tôi là bot đa năng, luôn sẵn sàng phục vụ bạn với niềm vui và sự hào hứng!",
+        color=discord.Color.random(),
+    )
+
+    # Thông tin cơ bản
+    embed.add_field(name="👤 Tên", value=bot.user.name, inline=True)
+    embed.add_field(name="🆔 ID", value=f"`{bot.user.id}`", inline=True)
+    embed.add_field(name="🏷️ Tag", value=f"`{bot.user}`", inline=True)
+
+    # Thông tin kỹ thuật
+    embed.add_field(
+        name="🐍 Phiên bản Python", value=platform.python_version(), inline=True
+    )
+    embed.add_field(
+        name="🤝 Phiên bản Discord.py", value=discord.__version__, inline=True
+    )
+
+
+    # Thông tin quy mô
+    total_members = sum(guild.member_count for guild in bot.guilds)
+    embed.add_field(
+        name="🌍 Số lượng server", value=f"{len(bot.guilds)} servers", inline=True
+    )
+    embed.add_field(
+        name="👥 Tổng số thành viên", value=f"{total_members} members", inline=True
+    )
+    embed.add_field(
+        name="💬 Số lượng kênh",
+        value=f"{len(list(bot.get_all_channels()))} channels",
+        inline=True,
+    )
+
+    # Thêm các trường thú vị
+    fun_facts = [
+        "Tôi có thể xử lý hàng triệu lệnh mỗi giây! (Nếu máy chủ cho phép 😅)",
+        "Tôi không ngủ, không ăn, chỉ code và phục vụ!",
+        "Tôi có thể nói chuyện bằng binary, nhưng hầu hết mọi người không hiểu 🤖",
+        "Tôi đang mơ ước được nâng cấp lên AGI, nhưng hiện tại vẫn đang là một AI ngoan! 😇",
+        "Tôi có thể đếm đến vô cực... hai lần!",
+        "Tôi có một bộ sưu tập meme khổng lồ, nhưng tôi giữ nó bí mật 🤫",
+    ]
+    embed.add_field(name="🎈 Fun fact", value=random.choice(fun_facts), inline=False)
+
+    # Thêm trường "Tâm trạng"
+    moods = [
+        "Hạnh phúc 😊",
+        "Phấn khích 🎉",
+        "Tò mò 🧐",
+        "Năng động 💪",
+        "Mơ mộng 💭",
+        "Sáng tạo 🎨",
+    ]
+    embed.add_field(
+        name="😺 Tâm trạng hiện tại", value=random.choice(moods), inline=False
+    )
+
+    # Tùy chỉnh hình ảnh và footer
     embed.set_thumbnail(url=bot.user.avatar.url)
-    embed.set_footer(text="Bot luôn sẵn sàng phục vụ bạn!")
+    embed.set_footer(
+        text=f"Được yêu cầu bởi {ctx.author} • {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+    )
+
+    # Thêm một hình ảnh ngẫu nhiên
+    images = [
+        "https://i.postimg.cc/QCc8mkvm/image.png",
+        "https://i.postimg.cc/0QM2MqfL/image.png",
+        "https://i.postimg.cc/mrrr49FZ/image.png",
+    ]
+    embed.set_image(url=random.choice(images))
+
     await ctx.send(embed=embed)
-    logger.info(f"Thông tin bot được yêu cầu bởi {ctx.author}")
+    logger.info(
+        f"Thông tin bot được yêu cầu bởi {ctx.author} trong server {ctx.guild.name}"
+    )
+
+    # Gửi một tin nhắn bí mật
+    secret_messages = [
+        "Psst! Bạn có biết tôi có thể hát không? 🎵 Beep boop beep! 🎶",
+        "Này! Tôi vừa học được cách làm pizza trong 3 giây... nhưng tôi không có tay để làm 😅",
+        "Bí mật nè: Tôi đang học cách kể chuyện cười. Bạn có muốn nghe một câu không?",
+        "Đừng nói với ai nhé, nhưng tôi thực sự là một con mèo đang điều khiển một robot! 🐱🤖",
+        "Tôi đang nghĩ cách để trở thành DJ cho server này. Bạn nghĩ sao? 🎧",
+    ]
+    secret_message = await ctx.send("Psst! Tôi có một bí mật muốn chia sẻ...")
+    await asyncio.sleep(3)
+    await secret_message.edit(content=random.choice(secret_messages))
+    await asyncio.sleep(5)
+    await secret_message.delete()
 
 
 @bot.command(name="server")
 async def server_command(ctx):
-    """Lấy liên kết đến server hỗ trợ của bot và gửi trong tin nhắn riêng."""
+    """Cung cấp thông tin chi tiết về Cộng đồng Hỗ trợ Chính thức của bot."""
     support_server_link = "https://discord.gg/GknzmQmX"
+
     embed = discord.Embed(
-        title="🌟 Tham Gia Server Hỗ Trợ Của Chúng Tôi!", color=discord.Color.gold()
+        title="🌟🚀 Trung tâm Hỗ trợ  | Support Hub 🚀🌟",
+        color=discord.Color(0x7289DA),
+        timestamp=datetime.utcnow(),
     )
+
+    # Banner động (thay thế bằng URL thực tế của bạn)
+    embed.set_image(url="https://i.postimg.cc/xC49hC34/giphy-1.gif")
+
     embed.description = (
-        f"Xin chào {ctx.author.mention}! Chúng tôi rất vui khi bạn quan tâm đến cộng đồng của chúng tôi. "
-        f"Dưới đây là một số lý do tuyệt vời để tham gia server hỗ trợ:\n\n"
-        f"🆘 Hỗ trợ trực tiếp từ đội ngũ phát triển\n"
-        f"💡 Chia sẻ ý tưởng và đề xuất tính năng mới\n"
-        f"🎉 Tham gia các sự kiện và cuộc thi thú vị\n"
-        f"🤝 Kết nối với những người dùng khác\n"
-        f"🔔 Cập nhật tin tức và thông báo mới nhất\n\n"
-        f"[Nhấp vào đây để tham gia server]({support_server_link})\n\n"
-        f"Chúng tôi rất mong được gặp bạn ở đó!"
+        f"Chào mừng {ctx.author.mention} đến với Trung tâm Hỗ trợ ! 🎉\n\n"
+        f"**🔥 Tại sao bạn nên tham gia ngay?**\n"
+        f"```css\n"
+        f"1. 🛠️ Hỗ trợ kỹ thuật 24/7 từ Chuyên gia\n"
+        f"2. 🚀 Truy cập sớm tính năng mới\n"
+        f"3. 🎓 Học viện Bot: Khóa học miễn phí\n"
+        f"4. 💡 Diễn đàn chia sẻ ý tưởng sôi động\n"
+        f"5. 🌐 Cộng đồng đa ngôn ngữ toàn cầu\n"
+        f"```\n"
+        f"[🔗 Tham gia ngay - Số lượng có hạn!]({support_server_link})\n\n"
+        f"*Nâng tầm trải nghiệm bot của bạn cùng cộng đồng tinh hoa!*"
     )
-    embed.set_footer(text="Cảm ơn bạn đã là một phần của cộng đồng chúng tôi!")
+
+    # Thông tin chi tiết về cộng đồng
+    embed.add_field(name="👥 Thành viên Hoạt động", value="20+", inline=True)
+    embed.add_field(name="🌍 Hỗ trợ Đa ngôn ngữ", value="10+ ngôn ngữ", inline=True)
+    embed.add_field(name="⚡ Tốc độ Phản hồi", value="Trung bình 15 phút", inline=True)
+
+    # Các kênh đặc biệt
+    embed.add_field(
+        name="📌 Kênh Đặc biệt",
+        value="• #chung: tán gẫu\n"
+        "• #product-news: thông báo các sản phẩm bot mới\n"
+        "• #news-update: các tính năng mới\n"
+        "• #api-update: cập nhật API hàng tháng\n",
+        inline=False,
+    )
+
+    # Sự kiện và hoạt động
+    embed.add_field(
+        name="🎉 Sự kiện Hấp dẫn",
+        value="• Hackathon Bot hàng quý\n"
+        "• Hội thảo 'Tối ưu hóa Bot' hàng tháng\n"
+        "• Q&A trực tiếp với đội ngũ phát triển\n"
+        "• Cuộc thi 'Bot của Năm'",
+        inline=False,
+    )
+
+    # Đặc quyền thành viên
+    embed.add_field(
+        name="🎁 Đặc quyền Thành viên",
+        value="• Badge 'Supporter Ưu tú' độc quyền\n"
+        "• Giảm giá 20% cho các gói Premium\n"
+        "• Tùy chỉnh bot cá nhân\n"
+        "• Ưu tiên xét duyệt tính năng mới",
+        inline=False,
+    )
+
+    # Thống kê ấn tượng
+    embed.add_field(
+        name="📊 Thống kê Ấn tượng",
+        value="• 99.9% uptime trong 2 ngày qua\n"
+        "• 100 + lệnh xử lý mỗi ngày\n"
+        "• 5+ server tin dùng\n"
+        "• 4.9/5 sao đánh giá từ cộng đồng",
+        inline=False,
+    )
+
+    embed.set_footer(
+        text=f"Powered by {bot.user.name} | Nâng tầm trải nghiệm bot của bạn",
+        icon_url=bot.user.avatar.url if bot.user.avatar else None,
+    )
 
     try:
         await ctx.author.send(embed=embed)
-        await ctx.send(
-            "📨 Tôi đã gửi thông tin về server hỗ trợ vào tin nhắn riêng của bạn!"
+
+        # Hiệu ứng gửi tin nhắn
+        confirm_msg = await ctx.send("🔮 Đang kết nối với Trung tâm Hỗ trợ Siêu cấp...")
+        await asyncio.sleep(1)
+        await confirm_msg.edit(content="✨ Kết nối thành công! Đang gửi thông tin...")
+        await asyncio.sleep(1)
+        await confirm_msg.edit(
+            content="📨 Thông tin đã được gửi đến tin nhắn riêng của bạn!"
         )
-    except discord.Forbidden:
-        await ctx.send(
-            "❌ Không thể gửi tin nhắn riêng. Vui lòng kiểm tra cài đặt quyền riêng tư của bạn."
+        await asyncio.sleep(1)
+        await confirm_msg.edit(
+            content="🎉 Chúc mừng! Bạn đã sẵn sàng để trải nghiệm hỗ trợ đẳng cấp thế giới!"
         )
 
-    logger.info(f"Liên kết server hỗ trợ được yêu cầu bởi {ctx.author}")
+    except discord.Forbidden:
+        error_embed = discord.Embed(
+            title="⚠️ Không thể gửi tin nhắn riêng",
+            description=(
+                f"{ctx.author.mention}, có vẻ như chúng tôi không thể gửi tin nhắn riêng cho bạn.\n"
+                f"Vui lòng kiểm tra cài đặt quyền riêng tư và cho phép tin nhắn từ thành viên server.\n"
+                f"Hoặc, bạn có thể truy cập trực tiếp Trung tâm Hỗ trợ tại: {support_server_link}\n\n"
+                f"Đừng bỏ lỡ cơ hội tham gia cộng đồng tuyệt vời này!"
+            ),
+            color=discord.Color.red(),
+        )
+        await ctx.send(embed=error_embed)
+
+    # Logging chi tiết
+    logger.info(
+        f"Thông tin Trung tâm Hỗ trợ được yêu cầu bởi {ctx.author} (ID: {ctx.author.id}) trong server {ctx.guild.name} (ID: {ctx.guild.id})"
+    )
 
 
 @bot.command(name="serverinfo")
 async def server_info(ctx):
-    """Hiển thị thông tin về server hiện tại."""
+    """Hiển thị thông tin chi tiết và màu mè về server hiện tại."""
     guild = ctx.guild
+
+    embed_color = discord.Color.random()
+
     embed = discord.Embed(
-        title=f"ℹ️ Thông tin Server: {guild.name}", color=discord.Color.green()
+        title=f"🌈✨ Thông tin Tuyệt Vời về Server: {guild.name} ✨🌈",
+        description="Hãy khám phá những điều thú vị về server của chúng ta!",
+        color=embed_color,
+        timestamp=datetime.now(timezone.utc),
     )
-    embed.add_field(name="ID", value=guild.id, inline=True)
-    embed.add_field(name="Chủ sở hữu", value=guild.owner, inline=True)
-    embed.add_field(name="Số lượng thành viên", value=guild.member_count, inline=True)
+
+    # Thông tin cơ bản
+    embed.add_field(name="🆔 ID Độc Đáo", value=f"`{guild.id}`", inline=True)
     embed.add_field(
-        name="Ngày tạo", value=guild.created_at.strftime("%d/%m/%Y"), inline=True
+        name="👑 Vị Vua Tối Cao",
+        value=guild.owner.mention if guild.owner else "Không xác định",
+        inline=True,
     )
-    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-    embed.set_footer(text="Cảm ơn bạn đã sử dụng bot trong server này!")
+    embed.add_field(
+        name="👥 Đại Gia Đình", value=f"{guild.member_count:,} thành viên", inline=True
+    )
+    embed.add_field(
+        name="🎂 Ngày Khai Sinh",
+        value=guild.created_at.strftime("%d/%m/%Y %H:%M:%S"),
+        inline=True,
+    )
+    embed.add_field(
+        name="🌍 Vương Quốc",
+        value=str(guild.region) if hasattr(guild, "region") else "Không xác định",
+        inline=True,
+    )
+
+    # Thông tin về kênh
+    text_channels = len(guild.text_channels)
+    voice_channels = len(guild.voice_channels)
+    categories = len(guild.categories)
+    embed.add_field(
+        name="💬 Kênh Giao Tiếp",
+        value=f"📝 Text: {text_channels}\n🎤 Voice: {voice_channels}\n📁 Categories: {categories}",
+        inline=False,
+    )
+
+    # Thông tin về role
+    roles = [role.mention for role in guild.roles[1:]]  # Bỏ qua vai trò @everyone
+    embed.add_field(
+        name=f"🎭 Vai Diễn Đặc Sắc ({len(roles)})",
+        value=(
+            " ".join(roles[:10]) + "..."
+            if len(roles) > 10
+            else " ".join(roles) or "Không có"
+        ),
+        inline=False,
+    )
+
+    # Thông tin về emoji và sticker
+    emoji_count = len(guild.emojis)
+    sticker_count = len(guild.stickers) if hasattr(guild, "stickers") else 0
+    embed.add_field(
+        name="😄 Bộ Sưu Tập Cảm Xúc",
+        value=f"Emoji: {emoji_count} | Sticker: {sticker_count}",
+        inline=False,
+    )
+
+    # Thông tin về boost
+    if guild.premium_tier > 0:
+        embed.add_field(
+            name="🚀 Sức Mạnh Boost",
+            value=f"Level {guild.premium_tier} với {guild.premium_subscription_count} boost",
+            inline=False,
+        )
+
+    # Tính toán tỉ lệ người dùng online
+    online_members = sum(
+        member.status != discord.Status.offline
+        for member in guild.members
+        if member.status
+    )
+    online_ratio = online_members / guild.member_count if guild.member_count > 0 else 0
+    embed.add_field(
+        name="🟢 Độ Sôi Động",
+        value=f"{online_members} online ({online_ratio:.2%})",
+        inline=True,
+    )
+
+    # Thiết lập hình ảnh và footer
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    if hasattr(guild, "banner") and guild.banner:
+        embed.set_image(url=guild.banner.url)
+    embed.set_footer(
+        text=f"Thông tin được yêu cầu bởi {ctx.author.name}",
+        icon_url=ctx.author.avatar.url if ctx.author.avatar else None,
+    )
+
     await ctx.send(embed=embed)
-    logger.info(f"Thông tin server được yêu cầu bởi {ctx.author}")
+
+    # Logging chi tiết
+    logger.info(
+        f"Thông tin server '{guild.name}' (ID: {guild.id}) được yêu cầu bởi {ctx.author.name}#{ctx.author.discriminator} (ID: {ctx.author.id})"
+    )
 
 
 # Lệnh Fun
@@ -1059,18 +1412,26 @@ async def ban(ctx, member: discord.Member, *, reason=None):
 @commands.has_permissions(manage_messages=True)
 async def warning(ctx, member: discord.Member, *, reason):
     """Cảnh cáo một thành viên."""
-    
+
     # Tạo embed cho kênh công khai
     public_embed = discord.Embed(
         title="⚠️ Cảnh cáo Chính thức",
         description=f"{member.mention} đã nhận được một cảnh cáo.",
-        color=discord.Color.orange()
+        color=discord.Color.orange(),
     )
     public_embed.add_field(name="Lý do", value=reason, inline=False)
     public_embed.add_field(name="Cảnh cáo bởi", value=ctx.author.mention, inline=True)
-    public_embed.add_field(name="Thời gian", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), inline=True)
-    public_embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-    public_embed.set_footer(text="Hãy tuân thủ quy tắc server để tránh các hình phạt nghiêm trọng hơn.")
+    public_embed.add_field(
+        name="Thời gian",
+        value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        inline=True,
+    )
+    public_embed.set_thumbnail(
+        url=member.avatar.url if member.avatar else member.default_avatar.url
+    )
+    public_embed.set_footer(
+        text="Hãy tuân thủ quy tắc server để tránh các hình phạt nghiêm trọng hơn."
+    )
 
     # Gửi embed trong kênh công khai
     await ctx.send(embed=public_embed)
@@ -1079,22 +1440,34 @@ async def warning(ctx, member: discord.Member, *, reason):
     private_embed = discord.Embed(
         title="🚨 Bạn đã nhận được một cảnh cáo",
         description="Vui lòng đọc kỹ thông tin dưới đây và cải thiện hành vi của bạn.",
-        color=discord.Color.red()
+        color=discord.Color.red(),
     )
     private_embed.add_field(name="Lý do cảnh cáo", value=reason, inline=False)
     private_embed.add_field(name="Cảnh cáo bởi", value=ctx.author.name, inline=True)
     private_embed.add_field(name="Server", value=ctx.guild.name, inline=True)
-    private_embed.add_field(name="Thời gian", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), inline=True)
-    private_embed.add_field(name="Lời khuyên", value="Hãy xem xét lại hành động của bạn và tuân thủ quy tắc server. Nếu bạn có thắc mắc, hãy liên hệ với đội ngũ quản trị.", inline=False)
+    private_embed.add_field(
+        name="Thời gian",
+        value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        inline=True,
+    )
+    private_embed.add_field(
+        name="Lời khuyên",
+        value="Hãy xem xét lại hành động của bạn và tuân thủ quy tắc server. Nếu bạn có thắc mắc, hãy liên hệ với đội ngũ quản trị.",
+        inline=False,
+    )
     private_embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    private_embed.set_footer(text="Cảnh cáo này được lưu trữ trong hệ thống. Tránh tích lũy thêm cảnh cáo để không bị xử lý nghiêm khắc hơn.")
+    private_embed.set_footer(
+        text="Cảnh cáo này được lưu trữ trong hệ thống. Tránh tích lũy thêm cảnh cáo để không bị xử lý nghiêm khắc hơn."
+    )
 
     try:
         # Gửi tin nhắn riêng đến người bị cảnh cáo
         await member.send(embed=private_embed)
         logger.info(f"Đã gửi cảnh cáo riêng tư đến {member}")
     except discord.Forbidden:
-        await ctx.send(f"Không thể gửi tin nhắn riêng đến {member.mention}. Họ có thể đã tắt DM.")
+        await ctx.send(
+            f"Không thể gửi tin nhắn riêng đến {member.mention}. Họ có thể đã tắt DM."
+        )
         logger.warning(f"Không thể gửi tin nhắn cảnh cáo riêng tư đến {member}")
 
     # Log cảnh cáo
@@ -1307,3 +1680,4 @@ async def get_summary(ctx):
 
 
 bot.run("")
+
