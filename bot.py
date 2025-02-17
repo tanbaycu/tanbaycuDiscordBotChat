@@ -20,10 +20,10 @@ import ssl
 import platform
 from colorama import Fore, Style, init
 import os
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 
-load_dotenv()
+# load_dotenv()
 # Khởi tạo colorama
 init(autoreset=True)
 
@@ -1689,5 +1689,10 @@ def update_memory(user_id, user_message, bot_response): # Cập nhật bộ nh�
 
 
 
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+if __name__ == "__main__":
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if token is None:
+        print("Error: DISCORD_BOT_TOKEN is not set in the environment variables.")
+    else:
+        bot.run(token)
 
