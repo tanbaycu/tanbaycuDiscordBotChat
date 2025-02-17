@@ -6,3 +6,4 @@ sqlite3
 requests
 pillow
 deep_translator
+colorama

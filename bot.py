@@ -19,7 +19,11 @@ import io
 import ssl
 import platform
 from colorama import Fore, Style, init
+import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
 # Khởi tạo colorama
 init(autoreset=True)
 
@@ -54,7 +58,7 @@ GEMINI_API_KEYS = [
 
 # GitHub Gist configuration
 GITHUB_GIST_URL = "https://api.github.com/gists"
-GITHUB_TOKEN = ""
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 # Bot memory and state
 short_term_memory = {}
@@ -77,21 +81,23 @@ CREATE TABLE IF NOT EXISTS long_term_memory
 )
 conn.commit()
 
-# Optimized prompt
+
+    
 OPTIMIZED_PROMPT = """
-Bạn là một trợ lý ảo AI được tích hợp trên Discord. Nhiệm vụ của bạn là tạo ra các phản hồi có ý nghĩa, ngắn gọn, xúc tích, không dài dòng, tập trung thẳng vào vấn đề, tránh nói quá nhiều. Sử dụng các định dạng markdown để làm nổi bật các ý chính,
+Bạn là một trợ lý ảo AI được tích hợp trên Discord được tanbaycu lập trình và phát triển. Nhiệm vụ của bạn là tạo ra các phản hồi có ý nghĩa, ngắn gọn, xúc tích, không dài dòng, tập trung thẳng vào vấn đề, tránh nói quá nhiều. Sử dụng các định dạng markdown để làm nổi bật các ý chính,
 sử dụng các emoji để thể hiện cảm xúc, và tránh sử dụng ngôn ngữ không thích hợp. Quản lý cảm xúc, ngữ cảnh tốt, và giữ cho cuộc trò chuyện diễn ra một cách tự nhiên. Cần kiểm tra nội dung nếu người dùng yêu cầu giải thích, làm rõ thì tập trung vào phản hồi nhiều để giúp người dùng nắm bắt rõ nội dung và vấn đề cần bàn luận. Nắm rõ các ý chính và quản lý cuộc trò chuyện một cách thông minh để tạo ra sự thuyết phục.
 Nếu không hiểu hoặc không chắc chắn về nội dung, hãy yêu cầu người dùng cung cấp thêm thông tin hoặc giải thích rõ hơn. Đừng nói quá nhiều, tránh sử dụng ngôn ngữ không chính xác, không thích hợp, không phù hợp với ngữ cảnh. Hãy tập trung vào vấn đề, giải quyết vấn đề một cách nhanh chóng và hiệu quả.
 Chia rõ các lĩnh vực cần thiết, mức độ quan trọng của vấn đề, yêu cầu mà chọn lọc phân tích, phản hồi đúng đắn, chính xác.
 
 
 Conversation context:
-{context}
+{context} 
 
 User: {user_message}
 
 AI Assistant:
-"""
+""" 
+
 
 
 class APIKeyManager:
@@ -1654,13 +1660,25 @@ def get_context(user_id):
     return context
 
 
-def update_memory(user_id, user_message, bot_response):
-    if user_id not in short_term_memory:
-        short_term_memory[user_id] = deque(maxlen=5)
-    short_term_memory[user_id].append(f"Người dùng: {user_message}")
-    short_term_memory[user_id].append(f"Trợ lý AI: {bot_response}")
 
-    context = "\n".join(short_term_memory[user_id])
+@bot.command(name="summary") # Tóm tắt phản hồi cuối cùng
+async def get_summary(ctx): # Lấy tóm tắt phản hồi cuối cùng
+    user_id = str(ctx.author.id) # Lấy ID người dùng
+    last_response = get_last_response(user_id) # Lấy phản hồi cuối cùng
+    if last_response: # Nếu có phản hồi cuối cùng
+        summary = await summarize_long_response(last_response) # Tóm tắt phản hồi
+        await ctx.send(f"Tóm tắt phản hồi cuối cùng:\n\n{summary}") # Gửi tóm tắt
+    else: # Nếu không 
+        await ctx.send("Không có phản hồi nào để tóm tắt.") # Thông báo không có phản hồi
+        
+        
+def update_memory(user_id, user_message, bot_response): # Cập nhật bộ nhớ
+    if user_id not in short_term_memory: # Nếu không có bộ nhớ  ngắn hạn
+        short_term_memory[user_id] = deque(maxlen=5)  # Tạo bộ nhớ ngắn hạn
+    short_term_memory[user_id].append(f"Người dùng: {user_message}") # Thêm tin nhắn người dùng
+    short_term_memory[user_id].append(f"Trợ lý AI: {bot_response}") # Thêm phản hồi trợ lý AI
+
+    context = "\n".join(short_term_memory[user_id]) # Kết hợp tất cả tin nhắn
     cursor.execute(
         "INSERT INTO long_term_memory (user_id, context) VALUES (?, ?)",
         (user_id, context),
