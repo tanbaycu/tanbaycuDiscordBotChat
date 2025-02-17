@@ -51,9 +51,9 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"  # Gemini API endpoint
 GEMINI_API_KEYS = [
-    "",
-    "",
-    "",
+    os.getenv("GEMINI_API_KEY_1"),
+    os.getenv("GEMINI_API_KEY_2"),
+    os.getenv("GEMINI_API_KEY_3"),
 ]
 
 # GitHub Gist configuration
@@ -1689,5 +1689,5 @@ def update_memory(user_id, user_message, bot_response): # Cập nhật bộ nh�
 
 
 
-bot.run("")
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))
 
