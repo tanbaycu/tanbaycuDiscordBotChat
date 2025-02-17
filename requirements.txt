@@ -2,7 +2,6 @@ discord.py
 asyncio
 python-dotenv
 aiohttp
-sqlite3
 requests
 pillow
 deep_translator
