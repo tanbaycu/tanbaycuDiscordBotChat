@@ -400,7 +400,7 @@ async def help_command(ctx, command_name=None):
                 "continue",
                 "clearmemory",
                 "clearall",
-                "summary",
+                "summarize",
             ],
             "ℹ️ General": ["invite", "botinfo", "server", "serverinfo", "ghichu"],
             "🎉 Fun": ["fact", "stopfact", "quote", "randomimage", "coinflip"],
@@ -1661,7 +1661,7 @@ def get_context(user_id):
 
 
 
-@bot.command(name="summary") # Tóm tắt phản hồi cuối cùng
+@bot.command(name="summarize") # Tóm tắt phản hồi cuối cùng
 async def get_summary(ctx): # Lấy tóm tắt phản hồi cuối cùng
     user_id = str(ctx.author.id) # Lấy ID người dùng
     last_response = get_last_response(user_id) # Lấy phản hồi cuối cùng
@@ -1686,15 +1686,7 @@ def update_memory(user_id, user_message, bot_response): # Cập nhật bộ nh�
     conn.commit()
 
 
-@bot.command(name="summary")
-async def get_summary(ctx):
-    user_id = str(ctx.author.id)
-    last_response = get_last_response(user_id)
-    if last_response:
-        summary = await summarize_long_response(last_response)
-        await ctx.send(f"Tóm tắt phản hồi cuối cùng:\n\n{summary}")
-    else:
-        await ctx.send("Không có phản hồi nào để tóm tắt.")
+
 
 
 bot.run("")
